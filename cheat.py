@@ -1,5 +1,4 @@
 """Plays SALIENT for you
-
 pip install requests tqdm
 """
 
@@ -10,11 +9,18 @@ import json
 import logging
 from io import open
 from time import sleep, time
-from itertools import count
-from datetime import datetime
+from getpass import getpass
 
 import requests
 from tqdm import tqdm
+
+""" PERSONAL SETTINGS"""
+preferred_planets = []
+
+
+logging.basicConfig(level=logging.DEBUG if sys.argv[-1] == 'debug' else logging.INFO,
+                    format="%(asctime)s | %(message)s")
+LOG = logging.getLogger()
 
 try:
     _input = raw_input
@@ -42,7 +48,7 @@ def get_access_token(force_input=False):
                 if not token_re.match(token):
                     token = ''
                 else:
-                    game.log("Loaded token from token.txt")
+                    LOG.info("Loaded token from token.txt")
 
     if not token:
         token = _input("Login to steamcommunity.com\n"
@@ -62,35 +68,23 @@ def get_access_token(force_input=False):
 
     return token
 
-
 class Saliens(requests.Session):
     api_url = 'https://community.steam-api.com/%s/v0001/'
-    player_info = None
-    planet = None
-    zone_id = None
 
     def __init__(self, access_token):
         super(Saliens, self).__init__()
         self.access_token = access_token
-        self.headers['User-Agent'] = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                                      ' (KHTML, like Gecko) Chrome/69.0.3464.0 Safari/537.36')
+        self.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3464.0 Safari/537.36'
         self.headers['Accept'] = '*/*'
         self.headers['Origin'] = 'https://steamcommunity.com'
         self.headers['Referer'] = 'https://steamcommunity.com/saliengame/play'
-        self.pbar_init()
-
-        class CustomHandler(logging.Handler):
-            def emit(_, record):
-                self.log("%s | %s | %s", record.levelname, record.name, record.msg % record.args)
-
-        self.LOG = logging.getLogger()
-        self.LOG.addHandler(CustomHandler())
 
     def spost(self, endpoint, form_fields=None, retry=False):
         if not form_fields:
             form_fields = {}
         form_fields['access_token'] = self.access_token
 
+        tries = 0
         data = None
 
         while not data:
@@ -98,12 +92,12 @@ class Saliens(requests.Session):
                 resp = self.post(self.api_url % endpoint, data=form_fields)
 
                 if resp.status_code != 200:
-                    raise Exception("HTTP %s" % resp.status_code)
+                    raise Exception("Not HTTP 200")
                 rdata = resp.json()
                 if 'response' not in rdata:
                     raise Exception("No response is json")
             except Exception as exp:
-                self.log("spost error: %s", str(exp))
+                LOG.debug("spost error: %s", str(exp))
                 if retry:
                     sleep(1)
             else:
@@ -114,7 +108,9 @@ class Saliens(requests.Session):
 
         return data
 
+
     def sget(self, endpoint, query_params=None, retry=False):
+        tries = 0
         data = None
 
         while not data:
@@ -122,12 +118,12 @@ class Saliens(requests.Session):
                 resp = self.get(self.api_url % endpoint, params=query_params)
 
                 if resp.status_code != 200:
-                    raise Exception("HTTP %s" % resp.status_code)
+                    raise Exception("Not HTTP 200")
                 rdata = resp.json()
                 if 'response' not in rdata:
                     raise Exception("No response is json")
             except Exception as exp:
-                self.log("spost error: %s", str(exp))
+                LOG.debug("spost error: %s", str(exp))
                 if retry:
                     sleep(1)
             else:
@@ -167,52 +163,10 @@ class Saliens(requests.Session):
         return self.planet
 
     def get_planet(self, pid):
-        planet = self.sget('ITerritoryControlMinigameService/GetPlanet',
-                           {'id': pid, '_': int(time())},
-                           retry=True,
-                           ).get('planets', [{}])[0]
-
-        if planet:
-            planet['easy_zones'] = sorted((z for z in planet['zones']
-                                           if (not z['captured']
-                                               and z['difficulty'] == 1
-                                               and z['capture_progress'] < 0.95)),
-                                          reverse=True,
-                                          key=lambda x: x['zone_position'])
-
-            planet['medium_zones'] = sorted((z for z in planet['zones']
-                                             if (not z['captured']
-                                                 and z['difficulty'] == 2
-                                                 and z['capture_progress'] < 0.95)),
-                                            reverse=True,
-                                            key=lambda x: x['zone_position'])
-
-            planet['hard_zones'] = sorted((z for z in planet['zones']
-                                           if (not z['captured']
-                                               and z['difficulty'] == 3
-                                               and z['capture_progress'] < 0.95)),
-                                          reverse=True,
-                                          key=lambda x: x['zone_position'])
-
-            planet['sort_key'] = (len(planet['easy_zones'])
-                                  + 100 * len(planet['medium_zones'])
-                                  + 10000 * len(planet['hard_zones'])
-                                  )
-
-        return planet
-
-    def get_planets(self):
-        return self.sget('ITerritoryControlMinigameService/GetPlanets',
-                         {'active_only': 1},
-                         retry=True,
-                         ).get('planets', [])
-
-    def get_uncaptured_planets(self):
-        planets = self.get_planets()
-        return sorted((game.get_planet(p['id']) for p in planets if not p['state']['captured']),
-                      reverse=True,
-                      key=lambda x: x['sort_key'],
-                      )
+        return self.sget('ITerritoryControlMinigameService/GetPlanet',
+                          {'id': pid},
+                          retry=True,
+                          ).get('planets', [{}])[0]
 
     def represent_clan(self, clan_id):
         return self.spost('ITerritoryControlMinigameService/RepresentClan', {'clanid': clan_id})
@@ -220,248 +174,200 @@ class Saliens(requests.Session):
     def report_score(self, score):
         return self.spost('ITerritoryControlMinigameService/ReportScore', {'score': score})
 
+    def get_planets(self):
+        return self.sget('ITerritoryControlMinigameService/GetPlanets', {'active_only': 1}, retry=True).get('planets', [])
+
     def join_planet(self, pid):
         return self.spost('ITerritoryControlMinigameService/JoinPlanet', {'id': pid})
 
     def join_zone(self, pos):
-        self.zone_id = pos
         return self.spost('ITerritoryControlMinigameService/JoinZone', {'zone_position': pos})
 
-    def leave_zone(self):
+    def leave_all(self):
         if 'active_zone_game' in self.player_info:
-            self.spost('IMiniGameService/LeaveGame',
-                       {'gameid': self.player_info['active_zone_game']},
-                       retry=False)
-        self.zone_id = None
-
-    def leave_planet(self):
+            self.spost('IMiniGameService/LeaveGame', {'gameid': self.player_info['active_zone_game']}, retry=False)
         if 'active_planet' in self.player_info:
-            self.spost('IMiniGameService/LeaveGame',
-                       {'gameid': self.player_info['active_planet']},
-                       retry=False)
+            self.spost('IMiniGameService/LeaveGame', {'gameid': self.player_info['active_planet']}, retry=False)
 
-    def pbar_init(self):
-        self.level_pbar = tqdm(ascii=True,
-                               dynamic_ncols=True,
-                               desc="Player Level",
-                               total=0,
-                               initial=0,
-                               bar_format='{desc:<22} {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt} | {remaining:>8}',
-                               )
-        self.planet_pbar = tqdm(ascii=True,
-                                dynamic_ncols=True,
-                                desc="Planet progress",
-                                total=0,
-                                initial=0,
-                                bar_format='{desc:<22} {percentage:3.0f}% |{bar}| {remaining:>8}',
-                                )
-        self.zone_pbar = tqdm(ascii=True,
-                              dynamic_ncols=True,
-                              desc="Zone progress",
-                              total=0,
-                              initial=0,
-                              bar_format='{desc:<22} {percentage:3.0f}% |{bar}| {remaining:>8}',
-                              )
-
-    def end(self):
-        self.level_pbar.close()
-        self.planet_pbar.close()
-        self.zone_pbar.close()
-
-    def pbar_refresh(self):
-        mul = 100000000
-
-        if not self.player_info:
-            return
-
+    def print_player_info(self):
         player_info = self.player_info
 
-        def avg_time(pbar, n):
-            curr_t = pbar._time()
-
-            if pbar.n == 0:
-                pbar.avg_time = 0
-                pbar.last_print_t = curr_t
-            else:
-                delta_n = n - pbar.n
-                delta_t = curr_t - pbar.last_print_t
-
-                if delta_n and delta_t:
-                    curr_avg_time = delta_t / delta_n
-                    pbar.avg_time = (pbar.smoothing * curr_avg_time
-                                     + (1-pbar.smoothing) * (pbar.avg_time
-                                                             if pbar.avg_time
-                                                             else curr_avg_time))
-                    pbar.last_print_t = curr_t
-
-            pbar.n = n
-
-        # level progress bar
-        self.level_pbar.desc = "Player Level {level}".format(**player_info)
-        self.level_pbar.total = int(player_info['next_level_score'])
-        avg_time(self.level_pbar, int(player_info['score']))
-        self.level_pbar.refresh()
-
-        # planet capture progress bar
-        if self.planet:
-            planet = self.planet
-            state = planet['state']
-            planet_progress = (mul if state['captured']
-                               else int(state.get('capture_progress', 0) * mul))
-            self.planet_pbar.desc = "Planet ({id}) progress".format(**planet)
-            self.planet_pbar.total = mul
-            avg_time(self.planet_pbar, planet_progress)
+        if getattr(self, 'level_pbar', None):
+            self.level_pbar.desc = "Player Level {level}".format(**player_info)
+            self.level_pbar.total = int(player_info['next_level_score'])
+            self.level_pbar.n = int(player_info['score'])
+            sys.stdout.write(str(self.level_pbar))
         else:
-            self.planet_pbar.desc = "Planet progress"
-            self.planet_pbar.n = 0
-            self.planet_pbar.total = 0
-            self.planet_pbar.last_print_t = time()
+            self.level_pbar = tqdm(ascii=True,
+                                   file=sys.stdout,
+                                   position=0,
+                                   dynamic_ncols=True,
+                                   desc="Player Level {level}".format(**player_info),
+                                   total=int(player_info['next_level_score']),
+                                   initial=int(player_info['score']),
+                                   bar_format='{desc:<22} {percentage:3.0f}% |{bar}| {remaining:>10}',
+                                   )
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
-        self.planet_pbar.refresh()
+    def print_planet_progress(self):
+        planet = self.planet
+        state = planet['state']
+        mul = 100000
 
-        # zone capture progress bar
-        if self.planet and self.zone_id is not None:
-            zone = self.planet['zones'][self.zone_id]
-            zone_progress = (mul if zone['captured']
-                             else int(zone.get('capture_progress', 0) * mul))
-            self.zone_pbar.desc = "Zone ({zone_position}) progress".format(**zone)
-            self.zone_pbar.total = mul
-            avg_time(self.zone_pbar, zone_progress)
+        current_progress = mul if state['captured'] else int(state['capture_progress'] * mul)
+
+        if getattr(self, 'planet_pbar', None):
+            self.planet_pbar.desc="Planet ({id}) progress".format(**planet)
+            self.planet_pbar.n = current_progress
+            sys.stdout.write(str(self.planet_pbar))
         else:
-            self.zone_pbar.desc = "Zone  progress"
-            self.zone_pbar.n = 0
-            self.zone_pbar.total = 0
-            self.zone_pbar.last_print_t = time()
+            self.planet_pbar = tqdm(ascii=True,
+                                    file=sys.stdout,
+                                    position=0,
+                                    dynamic_ncols=True,
+                                    desc="Planet ({id}) progress".format(**planet),
+                                    total=mul,
+                                    initial=current_progress,
+                                    bar_format='{desc:<22} {percentage:3.0f}% |{bar}| {remaining:>10}',
+                                    )
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
-        self.zone_pbar.refresh()
+    def print_zone_progress(self, zone=None):
+        if not self.planet:
+            return
 
-    def log(self, text, *args):
-        self.level_pbar.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " | " + (text % args))
-        self.pbar_refresh()
+        zone = self.planet['zones'][zone]
+        mul = 100000
 
+        current_progress = mul if zone['captured'] else int(zone['capture_progress'] * mul)
+
+        if getattr(self, 'zone_pbar', None):
+            self.zone_pbar.desc="Zone ({zone_position}) progress".format(**zone)
+            self.zone_pbar.n = current_progress
+            sys.stdout.write(str(self.zone_pbar))
+        else:
+            self.zone_pbar = tqdm(ascii=True,
+                                  file=sys.stdout,
+                                  position=0,
+                                  dynamic_ncols=True,
+                                  desc="Zone ({zone_position}) progress".format(**zone),
+                                  total=mul,
+                                  initial=current_progress,
+                                  bar_format='{desc:<22} {percentage:3.0f}% |{bar}| {remaining:>10}',
+                                  )
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 # ------- MAIN ----------
 
-
 game = Saliens(None)
-game.LOG.setLevel(logging.DEBUG if sys.argv[-1] == 'debug' else logging.INFO)
 game.access_token = get_access_token()
 
 while not game.is_access_token_valid():
     game.access_token = get_access_token(True)
 
 # display current stats
-game.log("Getting player info...")
+LOG.info("Getting player info...")
 game.represent_clan(4777282)
-game.log("Scanning for planets...")
 game.refresh_player_info()
-planets = game.get_uncaptured_planets()
+game.print_player_info()
 
 # join battle
-try:
-    while planets:
-        game.log("Found %s uncaptured planets: %s", len(planets), [x['id'] for x in planets])
-        planet_id = planets[0]['id']
-        game.leave_zone()
+while True:
+    LOG.info("Finding planet...")
+    game.refresh_player_info()
+    game.leave_all()
 
-        if not game.planet or game.planet['id'] != planet_id:
-            game.log("Joining toughest planet %s..", planets[0]['id'])
+    # locate uncaptured planet and join it
+    planets = game.get_planets()
+    planets = list(filter(lambda x: not x['state']['captured'], planets))
 
-            for i in range(3):
-                game.join_planet(planet_id)
-                game.refresh_player_info()
+    LOG.info("Found %s uncaptured planets: %s", len(planets), list(map(lambda x: int(x['id']), planets)))
 
-                if game.player_info['active_planet'] == planet_id:
-                    break
+    planets = list(map(lambda x: game.get_planet(x['id']), planets))
 
-                game.log("Failed to join planet. Retrying...")
-                game.leave_planet()
+    for planet in planets:
+        planet['n_hard_zones'] = list(map(lambda x: x['difficulty'], filter(lambda y: not y['captured'], planet['zones']))).count(3)
 
-            if i >= 2 and game.player_info['active_planet'] != planet_id:
-                continue
+	
+    planets = sorted(planets, reverse=True, key=lambda x: x['n_hard_zones'])
+#   planets = sorted(planets, reverse=False, key=lambda x: x['state']['current_players'])
 
+    if not planets:
+        LOG.error("No uncaptured planets left :(")
+        raise SystemExit
+		
+    planet_id = planets[0]['id']
+        
+
+    for pp in preferred_planets:
+        if pp in map(lambda x: int(x['id']), planets):
+            LOG.info('One of preferred planets is available!')
+            planet_id = str(pp)
+            break
+            
+
+    LOG.info("Joining planet %s..", planet_id)
+    game.join_planet(planet_id)
+    deadline = time() + 60 * 30
+
+    game.refresh_player_info()
+    game.refresh_planet_info()
+
+    # if join didnt work for retry
+    if game.planet['id'] != planet_id:
+        sleep(2)
+        continue
+
+    LOG.info("Planet name: {name} ({id})".format(id=game.planet['id'], **game.planet['state']))
+    LOG.info("Current players: {current_players}".format(**game.planet['state']))
+    LOG.info("Giveaway AppIDs: {giveaway_apps}".format(**game.planet))
+    game.print_planet_progress()
+
+    # zone
+    LOG.info("Finding conflict zone...")
+
+    while time() < deadline and game.planet and not game.planet['state']['captured']:
+        zones = game.planet['zones']
+        zones = list(filter(lambda x: x['captured'] == False, zones))
+        boss_zones = list(filter(lambda x: x['type'] == 4, zones))
+
+        if boss_zones:
+            zones = boss_zones
         else:
-            game.log("Remaining on current planet")
+            zones = sorted(zones, reverse=True, key=lambda x: x['zone_position'])
+            zones = sorted(zones, reverse=True, key=lambda x: x['difficulty'])
 
-        game.refresh_planet_info()
-        deadline = time() + 60 * 30  # 30minutes recheck
+        if not zones:
+            LOG.debug("No open zones left on planet")
+            game.player_info.pop('active_planet')
+            break
 
-        planet_id = game.planet['id']
-        planet_name = game.planet['state']['name']
-        curr_players = game.planet['state']['current_players']
-        giveaway_appds = game.planet['giveaway_apps']
-        n_hard = len(game.planet['hard_zones'])
-        n_med = len(game.planet['medium_zones'])
-        n_easy = len(game.planet['easy_zones'])
+        zone_id = zones[0]['zone_position']
+        difficulty = zones[0]['difficulty']
 
-        game.log("Planet name: %s (%s)", planet_name, planet_id)
-        game.log("Current players: %s", curr_players)
-        game.log("Giveaway AppIDs: %s", giveaway_appds)
-        game.log("Zones: %s hard, %s medium, %s easy", n_hard, n_med, n_easy)
+        while time() < deadline and game.planet and not game.planet['zones'][zone_id]['captured']:
+            game.print_player_info()
+            if 'clan_info' not in game.player_info or game.player_info['clan_info']['accountid'] != 4777282:
+                game.represent_clan(4777282)
+            game.print_planet_progress()
+            game.print_zone_progress(zone_id)
 
-        # zone
-        while game.planet and game.planet['id'] == planets[0]['id']:
-            zones = game.planet['hard_zones'] + game.planet['medium_zones'] + game.planet['easy_zones']
+            LOG.info("Fighting in zone %s (%s) for 2mins", zone_id, difficulty)
+            game.join_zone(zone_id)
 
-            if not zones:
-                game.log("No open zones left on planet")
-                game.player_info.pop('active_planet')
-                break
+            try:
+                sleep(120)
+            except KeyboardInterrupt:
+                raise SystemExit
 
-            zone_id = zones[0]['zone_position']
-            difficulty = zones[0]['difficulty']
+            score = 120 * (5 * (2**(difficulty - 1)))
+            LOG.info("Submitting score of %s...", score)
+            game.report_score(score)
 
-            dmap = {
-                1: 'easy',
-                2: 'medium',
-                3: 'hard',
-                }
-
-            game.log("Selecting zone %s (%s)....", zone_id, dmap.get(difficulty, difficulty))
-
-            while (game.planet
-                   and not game.planet['zones'][zone_id]['captured']
-                   and game.planet['zones'][zone_id]['capture_progress'] < 0.95):
-
-                if ('clan_info' not in game.player_info
-                   or game.player_info['clan_info']['accountid'] != 4777282):
-                    game.represent_clan(4777282)
-
-                game.log("Fighting in zone %s (%s) for 110sec",
-                         zone_id,
-                         dmap.get(difficulty, difficulty))
-
-                game.join_zone(zone_id)
-                game.refresh_player_info()
-
-                stoptime = time() + 110
-
-                for i in count(start=8):
-                    if time() >= stoptime:
-                        break
-
-                    sleep(2)
-
-                    if ((i+1) % 15) == 0:
-                        game.refresh_planet_info()
-
-                    game.pbar_refresh()
-
-                score = 120 * (5 * (2**(difficulty - 1)))
-                game.log("Submitting score of %s...", score)
-                game.report_score(score)
-
-                game.refresh_player_info()
-                game.refresh_planet_info()
-
-            game.log("Rescanning planets...")
-            planets = game.get_uncaptured_planets()
             game.refresh_planet_info()
+            game.refresh_player_info()
 
-except KeyboardInterrupt:
-    game.close()
-    sys.exit()
-
-# end game
-game.log("No uncaptured planets left. We done!")
-game.close()
+LOG.info("Planet was comptured or disappared. Moving on...")
