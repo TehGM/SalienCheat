@@ -21,7 +21,7 @@
 2. Press *F12* to open debug console.
 3. Go to *Network* tab.
 4. (optional) Clear it for convenience.
-5. Click on your planet. A request will appear in console, and one of them will have ID of the planet. For example, planet with ID will display following request:
+5. Click on your planet. A request will appear in console, and one of them will have ID 10 of the planet. For example, planet with ID will display following request:
 ```/ITerritoryControlMinigameService/GetPlanet/v0001/?id=10&language=english```
 
 ## Run
