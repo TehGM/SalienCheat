@@ -2,37 +2,28 @@
 
 ## First steps
 
-1. Join https://steamcommunity.com/groups/SteamDB (needed to represent captures)
-2. Open https://steamcommunity.com/saliengame/gettoken and save it as `token.txt` in same folder as `cheat.php`
-3. Select PHP or Python version of the script, you don't need both
+1. Download *cheat.py* and save it somewhere
+2. Login to [Steam](https://steamcommunity.com/) on your borwser.
+2. Go to [Token page](https://steamcommunity.com/saliengame/gettoken) and save it as *token.txt* in same folder as cheat.py
+3. Install [Python3](https://www.python.org/downloads/)
 
-## PHP
+## Setting up preferred planets
 
-📣 [Check this reddit thread for a complete guide and troubleshooting](https://redd.it/8t5w8v)
+1. Simply edit line 18 to include IDs of preferred planets, for example `preferred_planets = [8, 10, 12]`. 
+2. Save the file.
 
-1. Install PHP (yes, really)
-   1. Download https://windows.php.net/downloads/releases/php-7.2.7-nts-Win32-VC15-x64.zip
-   2. Extract zip to `C:\php`
-   3. Open `php.ini-production` in a text editor
-   4. Find `;extension=curl` and remove the semicolon
-   5. Save as `php.ini`
-2. Extract the contents of this script to the same folder
-3. Run the script: `php cheat.php`
+> First ID has priority over next, and so on. 
+> If none of the preferred planets are available, script will automatically pick the latest one.
 
-You can also provide token directly in CLI, to ease running multiple accounts:
-```
-php cheat.php token1
-php cheat.php token2
-```
+## Getting planet's ID
 
-## Python
+1. Open [Salien Game](https://steamcommunity.com/saliengame/) in browser.
+2. Press *F12* to open debug console.
+3. Go to *Network* tab.
+4. (optional) Clear it for convenience.
+5. Click on your planet. A request will appear in console, and one of them will have ID of the planet. For example, planet with ID will display following request:
+```/ITerritoryControlMinigameService/GetPlanet/v0001/?id=10&language=english```
 
-0. (optional) Setup virtual env: `virtualenv env && source env/bin/activate`
-1. `pip install requests tqdm`
-2. Run the script: `python cheat.py [token]`
+## Run
 
-## Docker
-1. Extract contents of this script somewhere.
-2. To build: `docker build . -t steamdb/saliencheat`
-3. To run: `docker run -it --init --rm -e TOKEN=<32 character token from gettoken url> steamdb/saliencheat`
-4. To stop running, Ctrl+C
+Run the script: `python cheat.py`
