@@ -6,6 +6,7 @@
 2. Login to [Steam](https://steamcommunity.com/) on your borwser.
 2. Go to [Token page](https://steamcommunity.com/saliengame/gettoken) and save it as *token.txt* in same folder as cheat.py
 3. Install [Python3](https://www.python.org/downloads/)
+4. Run `pip install requests tqdm` in Terminal/CMD.
 
 ## Setting up preferred planets
 
