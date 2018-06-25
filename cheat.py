@@ -300,6 +300,7 @@ while True:
         raise SystemExit
 		
     planet_id = planets[0]['id']
+    LOG.info('%s planets int preferred queue: %s', len(preferred_planets), preferred_planets)
         
 
     for pp in preferred_planets:
